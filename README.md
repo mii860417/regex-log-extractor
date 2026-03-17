@@ -17,8 +17,7 @@ Built with **Python + Streamlit**.
 
 Try the tool online:
 
-https://your-app-name.streamlit.app
-
+https://regex-log-extractor.streamlit.app
 ---
 
 # ❓ Why This Tool Exists
