@@ -1,11 +1,48 @@
 import re
 from typing import List, Dict, Any
 
+import requests
 import streamlit as st
 
 
+FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSemB7XiPBrg_BJx3k_m0o_JHXfbhleKEdwu78vVOVidEByCdw/formResponse"
+
+FIELD_TOOL_NAME = "entry.38392295"
+FIELD_EVENT_TYPE = "entry.1467972143"
+FIELD_INPUT_SOURCE = "entry.2139090681"
+FIELD_NOTE = "entry.2065255547"
+
+
+def is_keep_alive() -> bool:
+    try:
+        return str(st.query_params.get("keep_alive", "")).lower() in {"1", "true", "yes"}
+    except Exception:
+        return False
+
+
+def track(tool_name: str, event_type: str, input_source: str = "none", note: str = "") -> None:
+    if is_keep_alive():
+        return
+
+    data = {
+        FIELD_TOOL_NAME: tool_name,
+        FIELD_EVENT_TYPE: event_type,
+        FIELD_INPUT_SOURCE: input_source,
+        FIELD_NOTE: note,
+    }
+
+    try:
+        requests.post(FORM_URL, data=data, timeout=5)
+    except Exception:
+        pass
+
+
+TOOL_NAME = "Regex Log Extractor"
+TOOL_SLUG = "regex-log-extractor"
+
+
 st.set_page_config(
-    page_title="Regex Log Extractor",
+    page_title=TOOL_NAME,
     page_icon="🧩",
     layout="wide",
 )
@@ -98,10 +135,37 @@ def extract_matches(log_text: str, pattern: str, ignore_case: bool) -> Dict[str,
     }
 
 
+def detect_input_source(
+    log_text: str,
+    pattern: str,
+    default_log: str,
+    default_pattern: str,
+    example_choice: str,
+) -> str:
+    is_exact_example = (
+        example_choice != "None"
+        and log_text.strip() == default_log.strip()
+        and pattern.strip() == default_pattern.strip()
+    )
+    return "example" if is_exact_example else "custom"
+
+
+def is_qualified_custom_input(log_text: str, pattern: str, input_source: str) -> bool:
+    return (
+        input_source == "custom"
+        and len(log_text.strip()) > 20
+        and len(pattern.strip()) > 0
+    )
+
+
 st.title("🧩 Regex Log Extractor")
 st.caption(
     "Paste logs and a regex pattern to extract values like user IDs, status codes, exception names, emails, and more."
 )
+
+if "tracked_visitor" not in st.session_state:
+    track(TOOL_SLUG, "visitor")
+    st.session_state["tracked_visitor"] = True
 
 with st.sidebar:
     st.header("Examples")
@@ -171,13 +235,30 @@ with col2:
 analyze_clicked = st.button("Extract Values", type="primary")
 
 if analyze_clicked:
-    if not log_text.strip():
+    input_clean = log_text.strip()
+    pattern_clean = pattern.strip()
+
+    if not input_clean:
         st.error("Please paste log content first.")
         st.stop()
 
-    if not pattern.strip():
+    if not pattern_clean:
         st.error("Please enter a regex pattern.")
         st.stop()
+
+    input_source = detect_input_source(
+        log_text=log_text,
+        pattern=pattern,
+        default_log=default_log,
+        default_pattern=default_pattern,
+        example_choice=example_choice,
+    )
+
+    track(
+        tool_name=TOOL_SLUG,
+        event_type="click",
+        input_source=input_source,
+    )
 
     result = extract_matches(
         log_text=log_text,
@@ -188,6 +269,13 @@ if analyze_clicked:
     if not result["success"]:
         st.error(f"Invalid regex pattern: {result['error']}")
         st.stop()
+
+    if is_qualified_custom_input(log_text, pattern, input_source):
+        track(
+            tool_name=TOOL_SLUG,
+            event_type="qualified",
+            input_source=input_source,
+        )
 
     st.success("Extraction complete")
 
@@ -217,7 +305,6 @@ if analyze_clicked:
         st.info("No matching lines found.")
 
 st.markdown("---")
-st.markdown("### Good use cases")
 st.markdown(
     """
 - Extract `user_id` or `session_id` from logs  
